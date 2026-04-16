@@ -36,11 +36,11 @@ def complete(output=None):
 from crewai import Agent, Task, Crew, LLM
 
 # Read API key from env var (user sets this in CODE app config)
-api_key = os.environ.get("OPENAI_API_KEY", "")
-model_name = os.environ.get("LLM_MODEL", "gpt-4o-mini")
+api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+model_name = os.environ.get("LLM_MODEL", "anthropic/claude-haiku-4-5")
 
 if not api_key:
-    send("Error: OPENAI_API_KEY env var not set. Add it in the app's Environment Variables.")
+    send("Error: ANTHROPIC_API_KEY env var not set. Add it in the app's Environment Variables.")
     complete(output={"error": "No API key"})
     exit(1)
 
