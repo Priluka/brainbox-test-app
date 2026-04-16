@@ -1,2 +1,2 @@
-crewai
+crewai[anthropic]
 requests
