@@ -1,6 +1,6 @@
 import os, json, requests, time
 
-# --- Brainbox communication (lightweight, no SDK dependency) ---
+# --- Brainbox communication ---
 api_url = os.environ.get("BRAINBOX_API_URL", "")
 api_token = os.environ.get("BRAINBOX_API_TOKEN", "")
 session_id = os.environ.get("BRAINBOX_SESSION_ID", "")
@@ -12,7 +12,7 @@ def send(text, display_type="bubble"):
         "message": {"text": text, "displayType": display_type}
     }, headers=headers, timeout=10)
 
-def wait_for_message(timeout=120):
+def wait_for_message(timeout=180):
     after = int(time.time() * 1000)
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -35,54 +35,88 @@ def complete(output=None):
 # --- CrewAI ---
 from crewai import Agent, Task, Crew, LLM
 
-# Read API key from env var (user sets this in CODE app config)
 api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-model_name = os.environ.get("LLM_MODEL", "anthropic/claude-haiku-4-5")
-
 if not api_key:
-    send("Error: ANTHROPIC_API_KEY env var not set. Add it in the app's Environment Variables.")
+    send("Error: ANTHROPIC_API_KEY not set.")
     complete(output={"error": "No API key"})
     exit(1)
 
-llm = LLM(model=model_name, api_key=api_key)
+llm = LLM(model="anthropic/claude-haiku-4-5", api_key=api_key)
 
-send("Hi! I'm a CrewAI research bot. What topic should I research?")
+# --- Multi-turn conversation ---
+send("Hi! I'm a research assistant powered by CrewAI + Claude.\n\nWhat topic should I research?")
 
-topic = wait_for_message(timeout=120)
+topic = wait_for_message()
 if not topic:
-    send("No topic received. Ending session.")
+    send("No response. Goodbye!")
     complete()
     exit(0)
 
-send(f"Researching '{topic}'... This may take a moment.")
+send(f"Researching **{topic}**... one moment.")
 
-# Create crew
+# First research
 researcher = Agent(
     role="Senior Researcher",
-    goal=f"Find the most important and relevant information about {topic}",
-    backstory="You are an expert researcher with deep knowledge across many fields. You provide concise, accurate summaries.",
+    goal=f"Research {topic} thoroughly",
+    backstory="Expert researcher providing concise, accurate summaries.",
     llm=llm,
     verbose=False,
 )
 
-research_task = Task(
-    description=f"Research the topic: {topic}. Provide a clear, concise summary with key facts and insights. Keep it under 200 words.",
-    expected_output="A concise research summary with key facts",
+task = Task(
+    description=f"Research '{topic}'. Provide a clear summary with key facts. Under 200 words.",
+    expected_output="Concise research summary",
     agent=researcher,
 )
 
-crew = Crew(
-    agents=[researcher],
-    tasks=[research_task],
-    verbose=False,
-)
+crew = Crew(agents=[researcher], tasks=[task], verbose=False)
 
 try:
     result = crew.kickoff()
     send(str(result), display_type="final")
-    complete(output={"topic": topic, "result": str(result)})
 except Exception as e:
-    send(f"Crew failed: {str(e)}")
+    send(f"Research failed: {e}")
     complete(output={"error": str(e)})
+    exit(1)
 
+# Ask for feedback
+send("Would you like me to:\n1. **Dig deeper** into a specific aspect\n2. **Research a new topic**\n3. **End session** (type 'quit')")
+
+while True:
+    response = wait_for_message()
+    if not response:
+        send("No response. Ending session.")
+        break
+
+    if response.lower().strip() in ("quit", "exit", "end", "3"):
+        send("Thanks for using the research assistant! Goodbye.")
+        break
+
+    if response.strip() == "2":
+        send("What new topic should I research?")
+        topic = wait_for_message()
+        if not topic:
+            break
+        send(f"Researching **{topic}**...")
+    else:
+        # Dig deeper or follow-up
+        topic = f"{topic} — specifically: {response}"
+        send(f"Digging deeper into: **{response}**...")
+
+    task = Task(
+        description=f"Research '{topic}'. Provide a clear summary. Under 200 words.",
+        expected_output="Concise research summary",
+        agent=researcher,
+    )
+    crew = Crew(agents=[researcher], tasks=[task], verbose=False)
+
+    try:
+        result = crew.kickoff()
+        send(str(result), display_type="final")
+        send("What next?\n1. **Dig deeper**\n2. **New topic**\n3. **Quit**")
+    except Exception as e:
+        send(f"Research failed: {e}")
+        break
+
+complete(output={"status": "ok", "last_topic": topic})
 print("Done.")
